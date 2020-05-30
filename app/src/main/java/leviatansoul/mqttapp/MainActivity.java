@@ -8,6 +8,10 @@ import android.hardware.SensorManager;
 import android.os.Bundle;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
+import android.view.View;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import org.eclipse.paho.android.service.MqttAndroidClient;
@@ -30,13 +34,17 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private SensorManager sensorManager;
     Sensor accelerometer;
     MqttAndroidClient client;
+    boolean isClientConnect = false;
     Thread introThread;
     String acc_val = "0";
+    String ip, port = "";
     String AZURE_IP = "51.140.222.237";
     String LOCAL_IP = "192.168.2.244";
-    String port = "1883";
+    String MQTT_PORT = "1883";
     String topic = "/Sensor/Accelerometer/x";
-    int delay = 2000;
+    int delay = 5000;
+    Button connect;
+    TextView ip_view, port_view;
 
 
     @Override
@@ -44,76 +52,77 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        Log.d(TAG, "Init");
+
+        //Configuration
+        ip = LOCAL_IP;
+        port = MQTT_PORT;
+
+
         //UI Stuff
+        Button connect = (Button) findViewById(R.id.connect);
+        ip_view = (TextView) findViewById(R.id.ip);
+        ip_view.setText(ip);
+        port_view = (TextView) findViewById(R.id.port);
+        port_view.setText(port);
 
-        //Sensor Configuration
-        sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
-        accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
-        sensorManager.registerListener(MainActivity.this, accelerometer, SensorManager.SENSOR_DELAY_NORMAL);
 
-        //MQTT Configuration
-        String clientId = "SensorApp"+ System.currentTimeMillis();
-        client = new MqttAndroidClient(this.getApplicationContext(), "tcp://"+AZURE_IP+":"+port, clientId);
-        MqttConnectOptions options = new MqttConnectOptions();
-        options.setCleanSession(true); //the client and server will not maintain state across restarts of the client, the server or the connection.
-        options.setAutomaticReconnect(true);
-        client.setCallback(new MqttCallbackExtended() {
+        connect.setOnClickListener(new View.OnClickListener() {
             @Override
-            public void connectComplete(boolean reconnect, String serverURI) {
-
-                if (reconnect) {
-                    Log.d(TAG, "Reconnected to:");
-
-                    // Because Clean Session is true, we need to re-subscribe
-                   // subscribeToTopic(); Not needed yet
+            public void onClick(View view) {
+                if(isClientConnect){
+                    Toast.makeText(getApplicationContext(), "Disconecting",   Toast.LENGTH_SHORT).show();
+                    try {
+                        client.disconnect();
+                    } catch (MqttException e){
+                        e.printStackTrace();
+                    }
                 } else {
-                    Log.d(TAG, "Connected to: ");
 
+                    try {
+                        client = mqttClientConfiguration();
+                        IMqttToken token = client.connect();
+                        token.setActionCallback(new IMqttActionListener() {
+                            @Override
+                            public void onSuccess(IMqttToken asyncActionToken) {
+                                // We are connected
+                                isClientConnect = true;
+                                Log.d(TAG, "onSuccess");
+                                Toast.makeText(MainActivity.this, "Connected", Toast.LENGTH_SHORT).show();
+                                introThread = new Thread(runnableTest);
+                                introThread.start();
+
+
+                            }
+
+                            @Override
+                            public void onFailure(IMqttToken asyncActionToken, Throwable exception) {
+                                // Something went wrong e.g. connection timeout or firewall problems
+                                Log.d(TAG, "onFailure");
+                                isClientConnect = false;
+
+                            }
+                        });
+                    } catch (MqttException e) {
+                        Log.d(TAG, "Client disconnected");
+
+                        e.printStackTrace();
+                    }
+
+
+                    Toast.makeText(getApplicationContext(), "Client is disconnected",   Toast.LENGTH_SHORT).show();
                 }
-            }
-
-            @Override
-            public void connectionLost(Throwable cause) {
-                Log.d(TAG, "The Connection was lost.");
-            }
-
-            @Override
-            public void messageArrived(String topic, MqttMessage message) throws Exception {
-                Log.d(TAG, "Incoming message: " + new String(message.getPayload()));
-            }
-
-            @Override
-            public void deliveryComplete(IMqttDeliveryToken token) {
 
             }
         });
 
-        try {
-            IMqttToken token = client.connect();
-            token.setActionCallback(new IMqttActionListener() {
-                @Override
-                public void onSuccess(IMqttToken asyncActionToken) {
-                    // We are connected
-                    Log.d(TAG, "onSuccess");
-                    Toast.makeText(MainActivity.this, "Connected", Toast.LENGTH_LONG).show();
-                    introThread = new Thread(runnableTest);
-                    introThread.start();
+        //Sensor Configuration
+        sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+        accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+        sensorManager.registerListener(MainActivity.this, accelerometer, SensorManager.SENSOR_DELAY_GAME);
 
 
-                }
 
-                @Override
-                public void onFailure(IMqttToken asyncActionToken, Throwable exception) {
-                    // Something went wrong e.g. connection timeout or firewall problems
-                    Log.d(TAG, "onFailure");
-
-                }
-            });
-        } catch (MqttException e) {
-            Log.d(TAG, "Client disconnected");
-
-            e.printStackTrace();
-        }
 
     }
 
@@ -129,20 +138,66 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     acc_val = ""+event.values[0];
     }
 
+    public MqttAndroidClient mqttClientConfiguration(){
+        //MQTT Configuration
+
+        final String clientId = "SensorApp"+ System.currentTimeMillis();
+        port = port_view.getText().toString();
+        ip = ip_view.getText().toString();
+        MqttAndroidClient client_test = new MqttAndroidClient(this.getApplicationContext(), "tcp://"+ip+":"+port, clientId);
+        MqttConnectOptions options = new MqttConnectOptions();
+        options.setCleanSession(true); //the client and server will not maintain state across restarts of the client, the server or the connection.
+        options.setAutomaticReconnect(true);
+        client_test.setCallback(new MqttCallbackExtended() {
+            @Override
+            public void connectComplete(boolean reconnect, String serverURI) {
+
+                if (reconnect) {
+                    Log.d(TAG, "Reconnected to:");
+
+                    // Because Clean Session is true, we need to re-subscribe
+                    // subscribeToTopic(); Not needed yet
+                } else {
+                    Log.d(TAG, "Connected to: ");
+
+                }
+            }
+
+            @Override
+            public void connectionLost(Throwable cause) {
+                Log.d(TAG, "The Connection was lost.");
+                isClientConnect = false;
+            }
+
+            @Override
+            public void messageArrived(String topic, MqttMessage message) throws Exception {
+                Log.d(TAG, "Incoming message: " + new String(message.getPayload()));
+            }
+
+            @Override
+            public void deliveryComplete(IMqttDeliveryToken token) {
+
+            }
+        });
+
+        return  client_test;
+
+    }
+
     Runnable runnableTest =  new Runnable() {
         @Override
         public void run() {
             boolean exit = false;
+            String name = client.getClientId();
                 while (!exit){
                     try {
                         Thread.sleep(delay);
 
                         try {
-
-                            if (client.isConnected()){
+                            if (client.isConnected() && client.getClientId().equals(name)){
                                 String payload = acc_val+" "+System.currentTimeMillis();
                                 MqttMessage message = new MqttMessage(payload.getBytes("UTF-8"));
-                                message.setQos(0);
+                                message.setQos(1);
                                 client.publish(topic, message);
                                 //message.setRetained(false); Default
 
