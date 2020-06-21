@@ -25,7 +25,12 @@
             app:layout_constraintRight_toRightOf="parent"
             app:layout_constraintTop_toTopOf="parent" />
 
+        <Spinner
+            android:id="@+id/sensorList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
 
+        </Spinner>
 
         <EditText
             android:layout_width="match_parent"

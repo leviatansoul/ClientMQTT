@@ -12,7 +12,6 @@ import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
-import android.widget.EditText;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -22,13 +21,11 @@ import org.eclipse.paho.client.mqttv3.IMqttActionListener;
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
 import org.eclipse.paho.client.mqttv3.IMqttToken;
 import org.eclipse.paho.client.mqttv3.MqttCallbackExtended;
-import org.eclipse.paho.client.mqttv3.MqttClient;
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
 import org.eclipse.paho.client.mqttv3.MqttException;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
 
 import java.io.UnsupportedEncodingException;
-import java.security.Timestamp;
 
 public class MainActivity extends AppCompatActivity implements SensorEventListener {
 
@@ -36,14 +33,14 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     // Sensor Managment elements
     private SensorManager sensorManager;
-    Sensor accelerometer;
+    private int sensorSelected = Sensor.TYPE_ACCELEROMETER;
     String acc_val = "0";
+    String gyr_val = "0";
 
     //MQTT Options
     MqttAndroidClient client;
     boolean isClientConnect = false; //To indicate if the connection is established
     Thread introThread;
-
 
 
     //Default configuration
@@ -82,15 +79,14 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         frec_view.setText(frec);
 
 
-
         connect.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                if(isClientConnect){
-                    Toast.makeText(getApplicationContext(), "Disconecting",   Toast.LENGTH_SHORT).show();
+                if (isClientConnect) {
+                    Toast.makeText(getApplicationContext(), "Disconecting", Toast.LENGTH_SHORT).show();
                     try {
                         client.disconnect();
-                    } catch (MqttException e){
+                    } catch (MqttException e) {
                         e.printStackTrace();
                     }
                 } else {
@@ -108,7 +104,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                                 isClientConnect = true;
                                 Log.d(TAG, "onSuccess");
                                 Toast.makeText(MainActivity.this, "Connected", Toast.LENGTH_SHORT).show();
-                                introThread = new Thread(runnableTest);
+                                introThread = new Thread(sendMQTTMessages);
                                 introThread.start();
 
 
@@ -129,7 +125,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                     }
 
 
-                    Toast.makeText(getApplicationContext(), "Client is disconnected",   Toast.LENGTH_SHORT).show();
+                    Toast.makeText(getApplicationContext(), "Client is disconnected", Toast.LENGTH_SHORT).show();
                 }
 
             }
@@ -137,42 +133,80 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
         //Sensor Configuration
         sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
-        accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
-        sensorManager.registerListener(MainActivity.this, accelerometer, SensorManager.SENSOR_DELAY_GAME);
+
+        Spinner spinner = findViewById(R.id.sensorList);
+        ArrayAdapter<CharSequence> adapter = ArrayAdapter.createFromResource(this, R.array.sensors, R.layout.support_simple_spinner_dropdown_item);
+        spinner.setAdapter(adapter);
+
+        spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                // On selecting a spinner item
+                String item = parent.getItemAtPosition(position).toString();
+                switch (item) {
+                    case "Accelerometer":
+                        topic = "/Sensor/Accelerometer/x";
+                        sensorManager.unregisterListener(MainActivity.this);
+                        sensorManager.registerListener(MainActivity.this, sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER), SensorManager.SENSOR_DELAY_GAME);
+                        sensorSelected = Sensor.TYPE_ACCELEROMETER;
+                        break;
+
+                    case "Gyroscope":
+                        topic = "/Sensor/Gyroscope/x";
+                        sensorManager.unregisterListener(MainActivity.this);
+                        sensorManager.registerListener(MainActivity.this, sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE), SensorManager.SENSOR_DELAY_GAME);
+                        sensorSelected = Sensor.TYPE_GYROSCOPE;
+                        break;
+
+                    default:
+                        break;
+                }
 
 
+                // Showing selected spinner item
+                Toast.makeText(parent.getContext(), "Selected: " + item, Toast.LENGTH_SHORT).show();
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+
+            }
+        });
 
 
-
-    }
-
-    public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-        // On selecting a spinner item
-        String item = parent.getItemAtPosition(position).toString();
-
-        // Showing selected spinner item
-        Toast.makeText(parent.getContext(), "Selected: " + item, Toast.LENGTH_LONG).show();
     }
 
 
     @Override
-    public void onAccuracyChanged(Sensor sensor, int accuracy){
+    public void onAccuracyChanged(Sensor sensor, int accuracy) {
 
     }
 
     @Override
-    public void onSensorChanged(SensorEvent event){
-   // Log.d(TAG, "onSensorChanged: X "+ event.values[0]);
-    acc_val = ""+event.values[0];
+    public void onSensorChanged(SensorEvent event) {
+        int type = event.sensor.getType();
+
+        switch (type) {
+            case Sensor.TYPE_ACCELEROMETER:
+                acc_val = "" + event.values[0];
+                Log.d(TAG, "Accelerometer value: X " + event.values[0]);
+                break;
+            case Sensor.TYPE_GYROSCOPE:
+                gyr_val = "" + event.values[0];
+                Log.d(TAG, "Gyroscope value: X " + event.values[0]);
+                break;
+            default:
+                break;
+        }
     }
 
-    public MqttAndroidClient mqttClientConfiguration(){
+    public MqttAndroidClient mqttClientConfiguration() {
         //MQTT Configuration
 
-        final String clientId = "SensorApp"+ System.currentTimeMillis();
+        final String clientId = "SensorApp" + System.currentTimeMillis();
         port = port_view.getText().toString();
         ip = ip_view.getText().toString();
-        MqttAndroidClient client_test = new MqttAndroidClient(this.getApplicationContext(), "tcp://"+ip+":"+port, clientId);
+        MqttAndroidClient client_test = new MqttAndroidClient(this.getApplicationContext(), "tcp://" + ip + ":" + port, clientId);
 
 
         client_test.setCallback(new MqttCallbackExtended() {
@@ -207,40 +241,57 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             }
         });
 
-        return  client_test;
+        return client_test;
 
     }
 
-    Runnable runnableTest =  new Runnable() {
+    /**
+     * Send concurrently the sensor values to the MQTT broker until the user stops the connection
+     */
+    Runnable sendMQTTMessages = new Runnable() {
         @Override
         public void run() {
             boolean exit = false;
             String name = client.getClientId();
-            delay =  Integer.parseInt(frec_view.getText().toString());
-                while (!exit){
+            delay = Integer.parseInt(frec_view.getText().toString());
+            while (!exit) {
+                try {
+
+                    Thread.sleep(delay);
+
                     try {
-                        Thread.sleep(delay);
+                        if (client.isConnected() && client.getClientId().equals(name)) { //Make sure the client is connect and the id is the same
 
-                        try {
-                            if (client.isConnected() && client.getClientId().equals(name)){ //Make sure the client is connect and the id is the same
-
-                                String payload = acc_val+" "+System.currentTimeMillis();
-                                MqttMessage message = new MqttMessage(payload.getBytes("UTF-8"));
-                                message.setQos(0);
-                                client.publish(topic, message);
-
-                            } else {
-                                exit = true;
+                            String payload = "";
+                            switch (sensorSelected) {
+                                case Sensor.TYPE_ACCELEROMETER:
+                                    payload = acc_val + " " + System.currentTimeMillis();
+                                    topic = "/Sensor/Accelerometer/x";
+                                    break;
+                                case Sensor.TYPE_GYROSCOPE:
+                                    payload = gyr_val + " " + System.currentTimeMillis();
+                                    topic = "/Sensor/Gyroscope/x";
+                                    break;
+                                default:
+                                    break;
                             }
-                        } catch (UnsupportedEncodingException | MqttException e) {
-                            e.printStackTrace();
-                            Log.d(TAG, "MqttException in thread");
-                        }
 
-                    } catch (InterruptedException e) {
+                            MqttMessage message = new MqttMessage(payload.getBytes("UTF-8"));
+                            message.setQos(0);
+                            client.publish(topic, message);
+
+                        } else {
+                            exit = true;
+                        }
+                    } catch (UnsupportedEncodingException | MqttException e) {
                         e.printStackTrace();
+                        Log.d(TAG, "MqttException in thread");
                     }
+
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
                 }
+            }
         }
     };
 
