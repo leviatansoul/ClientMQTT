@@ -1,3 +1,8 @@
 <resources>
     <string name="app_name">MQTTApp</string>
+
+    <string-array name="sensors">
+        <item>Accelerometer</item>
+        <item>Gyroscope</item>
+    </string-array>
 </resources>

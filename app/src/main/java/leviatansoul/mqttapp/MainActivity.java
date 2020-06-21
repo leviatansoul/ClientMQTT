@@ -9,8 +9,11 @@ import android.os.Bundle;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
 import android.view.View;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -31,20 +34,29 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     private static final String TAG = "MainActivity";
 
+    // Sensor Managment elements
     private SensorManager sensorManager;
     Sensor accelerometer;
-    MqttAndroidClient client;
-    boolean isClientConnect = false;
-    Thread introThread;
     String acc_val = "0";
-    String ip, port = "";
+
+    //MQTT Options
+    MqttAndroidClient client;
+    boolean isClientConnect = false; //To indicate if the connection is established
+    Thread introThread;
+
+
+
+    //Default configuration
+    String ip, port, frec = "";
     String AZURE_IP = "51.140.222.237";
     String LOCAL_IP = "192.168.2.244";
     String MQTT_PORT = "1883";
+    String TOPIC_ACCELEROMETER = "/Sensor/Accelerometer/x";
     String topic = "/Sensor/Accelerometer/x";
-    int delay = 5000;
-    Button connect;
-    TextView ip_view, port_view;
+    int delay = 50;
+
+    //UI elements
+    TextView ip_view, port_view, frec_view;
 
 
     @Override
@@ -57,6 +69,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         //Configuration
         ip = LOCAL_IP;
         port = MQTT_PORT;
+        frec = Integer.toString(delay);
 
 
         //UI Stuff
@@ -65,6 +78,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         ip_view.setText(ip);
         port_view = (TextView) findViewById(R.id.port);
         port_view.setText(port);
+        frec_view = (TextView) findViewById(R.id.frec);
+        frec_view.setText(frec);
+
 
 
         connect.setOnClickListener(new View.OnClickListener() {
@@ -81,7 +97,10 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
                     try {
                         client = mqttClientConfiguration();
-                        IMqttToken token = client.connect();
+                        MqttConnectOptions options = new MqttConnectOptions();
+                        options.setCleanSession(true); //the client and server will not maintain state across restarts of the client, the server or the connection.
+                        options.setAutomaticReconnect(true);
+                        IMqttToken token = client.connect(options);
                         token.setActionCallback(new IMqttActionListener() {
                             @Override
                             public void onSuccess(IMqttToken asyncActionToken) {
@@ -124,6 +143,15 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
 
 
+
+    }
+
+    public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+        // On selecting a spinner item
+        String item = parent.getItemAtPosition(position).toString();
+
+        // Showing selected spinner item
+        Toast.makeText(parent.getContext(), "Selected: " + item, Toast.LENGTH_LONG).show();
     }
 
 
@@ -145,9 +173,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         port = port_view.getText().toString();
         ip = ip_view.getText().toString();
         MqttAndroidClient client_test = new MqttAndroidClient(this.getApplicationContext(), "tcp://"+ip+":"+port, clientId);
-        MqttConnectOptions options = new MqttConnectOptions();
-        options.setCleanSession(true); //the client and server will not maintain state across restarts of the client, the server or the connection.
-        options.setAutomaticReconnect(true);
+
+
         client_test.setCallback(new MqttCallbackExtended() {
             @Override
             public void connectComplete(boolean reconnect, String serverURI) {
@@ -189,17 +216,18 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         public void run() {
             boolean exit = false;
             String name = client.getClientId();
+            delay =  Integer.parseInt(frec_view.getText().toString());
                 while (!exit){
                     try {
                         Thread.sleep(delay);
 
                         try {
-                            if (client.isConnected() && client.getClientId().equals(name)){
+                            if (client.isConnected() && client.getClientId().equals(name)){ //Make sure the client is connect and the id is the same
+
                                 String payload = acc_val+" "+System.currentTimeMillis();
                                 MqttMessage message = new MqttMessage(payload.getBytes("UTF-8"));
-                                message.setQos(1);
+                                message.setQos(0);
                                 client.publish(topic, message);
-                                //message.setRetained(false); Default
 
                             } else {
                                 exit = true;
