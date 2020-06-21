@@ -44,7 +44,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
 
     //Default configuration
-    String ip, port, frec = "";
+    String user, ip, port, frec = "";
     String AZURE_IP = "51.140.222.237";
     String LOCAL_IP = "192.168.2.244";
     String MQTT_PORT = "1883";
@@ -53,7 +53,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     int delay = 50;
 
     //UI elements
-    TextView ip_view, port_view, frec_view;
+    TextView user_view, ip_view, port_view, frec_view;
+    Spinner sensorType;
+    boolean exit = false;
 
 
     @Override
@@ -67,10 +69,14 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         ip = LOCAL_IP;
         port = MQTT_PORT;
         frec = Integer.toString(delay);
+        user = "user1";
+
 
 
         //UI Stuff
-        Button connect = (Button) findViewById(R.id.connect);
+        final Button connect = (Button) findViewById(R.id.connect);
+        user_view = (TextView) findViewById(R.id.client);
+        user_view.setText(user);
         ip_view = (TextView) findViewById(R.id.ip);
         ip_view.setText(ip);
         port_view = (TextView) findViewById(R.id.port);
@@ -85,7 +91,17 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 if (isClientConnect) {
                     Toast.makeText(getApplicationContext(), "Disconecting", Toast.LENGTH_SHORT).show();
                     try {
+                        exit = true;
                         client.disconnect();
+                        isClientConnect = false;
+
+                        frec_view.setEnabled(true);
+                        ip_view.setEnabled(true);
+                        port_view.setEnabled(true);
+                        user_view.setEnabled(true);
+                        sensorType.setEnabled(true);
+                        connect.setText("Connect");
+
                     } catch (MqttException e) {
                         e.printStackTrace();
                     }
@@ -104,6 +120,14 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                                 isClientConnect = true;
                                 Log.d(TAG, "onSuccess");
                                 Toast.makeText(MainActivity.this, "Connected", Toast.LENGTH_SHORT).show();
+
+                                frec_view.setEnabled(false);
+                                ip_view.setEnabled(false);
+                                port_view.setEnabled(false);
+                                user_view.setEnabled(false);
+                                sensorType.setEnabled(false);
+                                connect.setText("Disconnect");
+
                                 introThread = new Thread(sendMQTTMessages);
                                 introThread.start();
 
@@ -125,7 +149,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                     }
 
 
-                    Toast.makeText(getApplicationContext(), "Client is disconnected", Toast.LENGTH_SHORT).show();
+
                 }
 
             }
@@ -134,11 +158,11 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         //Sensor Configuration
         sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
 
-        Spinner spinner = findViewById(R.id.sensorList);
+        sensorType = findViewById(R.id.sensorList);
         ArrayAdapter<CharSequence> adapter = ArrayAdapter.createFromResource(this, R.array.sensors, R.layout.support_simple_spinner_dropdown_item);
-        spinner.setAdapter(adapter);
+        sensorType.setAdapter(adapter);
 
-        spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+        sensorType.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                 // On selecting a spinner item
@@ -189,11 +213,11 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         switch (type) {
             case Sensor.TYPE_ACCELEROMETER:
                 acc_val = "" + event.values[0];
-                Log.d(TAG, "Accelerometer value: X " + event.values[0]);
+                //Log.d(TAG, "Accelerometer value: X " + event.values[0]);
                 break;
             case Sensor.TYPE_GYROSCOPE:
                 gyr_val = "" + event.values[0];
-                Log.d(TAG, "Gyroscope value: X " + event.values[0]);
+               // Log.d(TAG, "Gyroscope value: X " + event.values[0]);
                 break;
             default:
                 break;
@@ -203,7 +227,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     public MqttAndroidClient mqttClientConfiguration() {
         //MQTT Configuration
 
-        final String clientId = "SensorApp" + System.currentTimeMillis();
+        final String clientId = user_view.getText().toString();
         port = port_view.getText().toString();
         ip = ip_view.getText().toString();
         MqttAndroidClient client_test = new MqttAndroidClient(this.getApplicationContext(), "tcp://" + ip + ":" + port, clientId);
@@ -251,13 +275,15 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     Runnable sendMQTTMessages = new Runnable() {
         @Override
         public void run() {
-            boolean exit = false;
+
+            exit = false;
             String name = client.getClientId();
+            Log.d(TAG, "usuario "+ name);
+
             delay = Integer.parseInt(frec_view.getText().toString());
             while (!exit) {
                 try {
 
-                    Thread.sleep(delay);
 
                     try {
                         if (client.isConnected() && client.getClientId().equals(name)) { //Make sure the client is connect and the id is the same
@@ -266,11 +292,11 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                             switch (sensorSelected) {
                                 case Sensor.TYPE_ACCELEROMETER:
                                     payload = acc_val + " " + System.currentTimeMillis();
-                                    topic = "/Sensor/Accelerometer/x";
+                                    topic = "/Sensor/"+name+"/Accelerometer/x";
                                     break;
                                 case Sensor.TYPE_GYROSCOPE:
                                     payload = gyr_val + " " + System.currentTimeMillis();
-                                    topic = "/Sensor/Gyroscope/x";
+                                    topic = "/Sensor/"+name+"/Gyroscope/x";
                                     break;
                                 default:
                                     break;
@@ -279,6 +305,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                             MqttMessage message = new MqttMessage(payload.getBytes("UTF-8"));
                             message.setQos(0);
                             client.publish(topic, message);
+
+                            Thread.sleep(delay);
 
                         } else {
                             exit = true;
