@@ -40,6 +40,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     //MQTT Options
     MqttAndroidClient client;
     boolean isClientConnect = false; //To indicate if the connection is established
+    MqttClientManager mqttClientManager = new MqttClientManager();
+
 
     //Default configuration
     String user, ip, port, frec = "";
@@ -68,7 +70,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         user = "user1";
 
 
-
         //UI initial configuration
         final Button connect = (Button) findViewById(R.id.connect);
         user_view = (TextView) findViewById(R.id.client);
@@ -80,17 +81,28 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         frec_view = (TextView) findViewById(R.id.frec);
         frec_view.setText(frec);
 
+        //Sensor Configuration
+        sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+
+        /**
+         * Spinner is configured to select which type of sensor to use
+         */
+        sensorType = findViewById(R.id.sensorList);
+        ArrayAdapter<CharSequence> adapter = ArrayAdapter.createFromResource(this, R.array.sensors, R.layout.support_simple_spinner_dropdown_item);
+        sensorType.setAdapter(adapter);
+
 
         connect.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                if (isClientConnect) {
+                if (mqttClientManager.isClientConnected()) {
                     Toast.makeText(getApplicationContext(), "Disconecting", Toast.LENGTH_SHORT).show();
                     try {
 
                         //MQTT client is disconnected and thread is stopped
                         exit = true;
-                        client.disconnect();
+                        mqttClientManager.getClient().disconnect();
+                        mqttClientManager.setStatus(false);
                         isClientConnect = false;
 
                         //Enabling UI elements
@@ -111,16 +123,20 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                         /*
                         A new MQTT client is generated and connected to the broker
                          */
-                        client = mqttClientConfiguration();
-                        MqttConnectOptions options = new MqttConnectOptions();
-                        options.setCleanSession(true); //the client and server will not maintain state across restarts of the client, the server or the connection.
-                        options.setAutomaticReconnect(true);
-                        IMqttToken token = client.connect(options);
+                        user = user_view.getText().toString();
+                        port = port_view.getText().toString();
+                        ip = ip_view.getText().toString();
+
+                        mqttClientManager.setClient(getApplicationContext(), ip, port, user);
+                        mqttClientManager.getOptions();
+
+
+                        IMqttToken token = mqttClientManager.getClient().connect(mqttClientManager.getOptions());
                         token.setActionCallback(new IMqttActionListener() {
                             @Override
                             public void onSuccess(IMqttToken asyncActionToken) {
                                 // We are connected
-                                isClientConnect = true;
+                                mqttClientManager.setStatus(true);
                                 Log.d(TAG, "onSuccess");
                                 Toast.makeText(MainActivity.this, "Connected", Toast.LENGTH_SHORT).show();
 
@@ -141,7 +157,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                             public void onFailure(IMqttToken asyncActionToken, Throwable exception) {
                                 // Something went wrong e.g. connection timeout or firewall problems
                                 Log.d(TAG, "onFailure");
+
                                 isClientConnect = false;
+                                mqttClientManager.setStatus(false);
 
                             }
                         });
@@ -155,15 +173,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             }
         });
 
-        //Sensor Configuration
-        sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
 
-        /**
-         * Spinner is configured to select which type of sensor to use
-         */
-        sensorType = findViewById(R.id.sensorList);
-        ArrayAdapter<CharSequence> adapter = ArrayAdapter.createFromResource(this, R.array.sensors, R.layout.support_simple_spinner_dropdown_item);
-        sensorType.setAdapter(adapter);
 
         sensorType.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
@@ -243,7 +253,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
         client_test.setCallback(new MqttCallbackExtended() {
             @Override
-            public void connectComplete(boolean reconnect, String serverURI) {
+            public void connectComplete(boolean reconnect, String serverURI) { //Called when the connection to the server is completed successfully.
 
                 if (reconnect) {
                     Log.d(TAG, "Reconnected to:");
@@ -259,16 +269,16 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             @Override
             public void connectionLost(Throwable cause) {
                 Log.d(TAG, "The Connection was lost.");
-                isClientConnect = false;
+                mqttClientManager.setStatus(false);
             }
 
             @Override
-            public void messageArrived(String topic, MqttMessage message) throws Exception {
+            public void messageArrived(String topic, MqttMessage message) throws Exception { //This method is called when a message arrives from the server.
                 Log.d(TAG, "Incoming message: " + new String(message.getPayload()));
             }
 
             @Override
-            public void deliveryComplete(IMqttDeliveryToken token) {
+            public void deliveryComplete(IMqttDeliveryToken token) { //For QoS 0 messages it is called once the message has been handed to the network for delivery
 
             }
         });
@@ -280,12 +290,12 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     /**
      * Send concurrently the sensor values to the MQTT broker until the user stops the connection
      */
-    Runnable sendMQTTMessages = new Runnable() {
+    public Runnable sendMQTTMessages = new Runnable() {
         @Override
         public void run() {
 
             exit = false;
-            String name = client.getClientId();
+            String name = mqttClientManager.getClient().getClientId();
             Log.d(TAG, "usuario "+ name);
 
             frecuency = Integer.parseInt(frec_view.getText().toString());
@@ -293,32 +303,31 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             while (!exit) {
                 try {
                     try {
-                        if (client.isConnected() && client.getClientId().equals(name)) { //Make sure the client is connect and the id is the same
+                        if (mqttClientManager.isClientConnected()) { //Make sure the client is connect and the id is the same
 
                             String payload = "";
+                            MqttMessage message = new MqttMessage();
                             switch (sensorSelected) {
                                 case Sensor.TYPE_ACCELEROMETER:
-                                    payload = accelerometer_value + " " + System.currentTimeMillis();
+                                    message = mqttClientManager.prepareMQTTMessage(accelerometer_value, 0);
                                     topic = "/Sensor/"+name+"/Accelerometer/x";
                                     break;
                                 case Sensor.TYPE_GYROSCOPE:
-                                    payload = gyroscope_value + " " + System.currentTimeMillis();
+                                    message = mqttClientManager.prepareMQTTMessage(gyroscope_value, 0);
                                     topic = "/Sensor/"+name+"/Gyroscope/x";
                                     break;
                                 default:
                                     break;
                             }
 
-                            MqttMessage message = new MqttMessage(payload.getBytes("UTF-8"));
-                            message.setQos(0);
-                            client.publish(topic, message);
+                            mqttClientManager.getClient().publish(topic, message);
 
                             Thread.sleep(frecuency);
 
                         } else {
                             exit = true;
                         }
-                    } catch (UnsupportedEncodingException | MqttException e) {
+                    } catch ( MqttException e) {
                         e.printStackTrace();
                         Log.d(TAG, "MqttException in thread");
                     }
