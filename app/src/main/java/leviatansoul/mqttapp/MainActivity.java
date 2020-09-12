@@ -1,10 +1,5 @@
 package leviatansoul.mqttapp;
 
-import android.content.Context;
-import android.hardware.Sensor;
-import android.hardware.SensorEvent;
-import android.hardware.SensorEventListener;
-import android.hardware.SensorManager;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
@@ -20,50 +15,30 @@ import androidx.lifecycle.Observer;
 import androidx.lifecycle.ViewModelProvider;
 
 import org.eclipse.paho.android.service.MqttAndroidClient;
-import org.eclipse.paho.client.mqttv3.IMqttActionListener;
-import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
-import org.eclipse.paho.client.mqttv3.IMqttToken;
-import org.eclipse.paho.client.mqttv3.MqttCallbackExtended;
-import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
-import org.eclipse.paho.client.mqttv3.MqttException;
-import org.eclipse.paho.client.mqttv3.MqttMessage;
 
-
-import java.io.UnsupportedEncodingException;
-
-import static android.content.ContentValues.TAG;
-
-public class MainActivity extends AppCompatActivity implements SensorEventListener {
+public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "MainActivity";
 
-    // Sensor Managment elements
-    private SensorManager sensorManager;
-    private int sensorSelected = Sensor.TYPE_ACCELEROMETER;
-    public static String accelerometer_value = "0";
-    public static String gyroscope_value = "0";
+    // Sensor Manager
+    private GameSensorManager gameSensorManager;
 
-    //MQTT Options
-    MqttAndroidClient client;
-    boolean isClientConnect = false; //To indicate if the connection is established
+    //MQTT Manager
     private MqttClientManager mqttClientManager;
 
+    //Model of the MainActivity
+    private MainActivityModel mainActivityModel;
 
     //Default configuration
-    String user, ip, port, frec = "";
-    String AZURE_IP = "51.140.222.237";
-    String LOCAL_IP = "192.168.2.244";
-    String MQTT_PORT = "1883";
-    String topic = "/Sensor/user1/Accelerometer/x";
-    int frecuency = 50;
+    private String user, ip, port, frec = "";
+    private static final String DEFAULT_IP = "192.168.8.110";
+    private static final String DEFAULT_USER = "user1";
+    private static final String MQTT_DEFAULT_PORT = "1883";
+    private static final int DEFAULT_FRECUENCY = 50;
 
     //UI elements
     TextView user_view, ip_view, port_view, frec_view;
-    Spinner sensorType;
-    boolean exit = false;
-
-
-    private MainActivityModel mainActivityModel;
+    Spinner sensorSelector;
 
 
     @Override
@@ -72,11 +47,11 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         setContentView(R.layout.activity_main);
 
 
-        //Configuration
-        ip = LOCAL_IP;
-        port = MQTT_PORT;
-        frec = Integer.toString(frecuency);
-        user = "user1";
+        //Defaut configuration
+        ip = DEFAULT_IP;
+        port = MQTT_DEFAULT_PORT;
+        frec = Integer.toString(DEFAULT_FRECUENCY);
+        user = DEFAULT_USER;
 
 
         //UI initial configuration
@@ -90,23 +65,23 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         frec_view = (TextView) findViewById(R.id.frec);
         frec_view.setText(frec);
 
-        //Sensor Configuration
-        sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+        //Sensor manager initialization
+        gameSensorManager = new GameSensorManager(getApplicationContext());
 
         /**
          * Spinner is configured to select which type of sensor to use
          */
-        sensorType = findViewById(R.id.sensorList);
+        sensorSelector = findViewById(R.id.sensorList);
         ArrayAdapter<CharSequence> adapter = ArrayAdapter.createFromResource(this, R.array.sensors, R.layout.support_simple_spinner_dropdown_item);
-        sensorType.setAdapter(adapter);
+        sensorSelector.setAdapter(adapter);
 
+        //MainActivity model initialization
         mainActivityModel = new ViewModelProvider(this).get(MainActivityModel.class);
 
         mainActivityModel.brokerConnection().observe(this, new Observer<Boolean>() {
             @Override
             public void onChanged(Boolean hasConnected) {
 
-                Log.d(TAG, "onSuccess " + hasConnected);
                 if (hasConnected) {
 
                     //UI elements are disabled
@@ -114,7 +89,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                     ip_view.setEnabled(false);
                     port_view.setEnabled(false);
                     user_view.setEnabled(false);
-                    sensorType.setEnabled(false);
+                    sensorSelector.setEnabled(false);
                     connect.setText("Disconnect");
                     Toast.makeText(getApplicationContext(), "Connected", Toast.LENGTH_SHORT).show();
 
@@ -125,7 +100,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                     ip_view.setEnabled(true);
                     port_view.setEnabled(true);
                     user_view.setEnabled(true);
-                    sensorType.setEnabled(true);
+                    sensorSelector.setEnabled(true);
                     connect.setText("Connect");
                     Toast.makeText(getApplicationContext(), "Disconected", Toast.LENGTH_SHORT).show();
 
@@ -145,19 +120,18 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                     mainActivityModel.disconnectToBroker(mqttClientManager);
                     mqttClientManager = null;
 
-
                 } else {
 
                     /*
-                    A new MQTT client is generated and connected to the broker
+                    A new MQTT manager and client is generated and connected to the broker
                     */
                     user = user_view.getText().toString();
                     port = port_view.getText().toString();
                     ip = ip_view.getText().toString();
                     frec = frec_view.getText().toString();
-                    Log.d(TAG, "data are " + user + port + ip);
+
                     mqttClientManager = new MqttClientManager(getApplicationContext(), ip, port, user);
-                    mainActivityModel.connectToBroker(mqttClientManager, getApplicationContext(), ip, port, user, frec, sensorSelected);
+                    mainActivityModel.connectToBroker(mqttClientManager, gameSensorManager, ip, port, user, frec );
 
 
                 }
@@ -166,28 +140,12 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         });
 
 
-        sensorType.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+        sensorSelector.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                 // On selecting a spinner item
                 String item = parent.getItemAtPosition(position).toString();
-                switch (item) {
-                    case "Accelerometer":
-                        sensorManager.unregisterListener(MainActivity.this);
-                        sensorManager.registerListener(MainActivity.this, sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER), SensorManager.SENSOR_DELAY_GAME);
-                        sensorSelected = Sensor.TYPE_ACCELEROMETER;
-                        break;
-
-                    case "Gyroscope":
-                        sensorManager.unregisterListener(MainActivity.this);
-                        sensorManager.registerListener(MainActivity.this, sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE), SensorManager.SENSOR_DELAY_GAME);
-                        sensorSelected = Sensor.TYPE_GYROSCOPE;
-                        break;
-
-                    default:
-                        break;
-                }
-
+                gameSensorManager.registerSensor(item);
 
                 // Showing selected spinner item
                 Toast.makeText(parent.getContext(), "Selected: " + item, Toast.LENGTH_SHORT).show();
@@ -200,35 +158,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         });
 
 
-    }
-
-
-    @Override
-    public void onAccuracyChanged(Sensor sensor, int accuracy) {
-
-    }
-
-    /**
-     * Once sensor are being tracked, everytime there are changes in the sensor values it will be saved
-     *
-     * @param event
-     */
-    @Override
-    public void onSensorChanged(SensorEvent event) {
-        int type = event.sensor.getType();
-
-        switch (type) {
-            case Sensor.TYPE_ACCELEROMETER:
-                accelerometer_value = "" + event.values[0];
-                //Log.d(TAG, "Accelerometer value: X " + event.values[0]);
-                break;
-            case Sensor.TYPE_GYROSCOPE:
-                gyroscope_value = "" + event.values[0];
-                // Log.d(TAG, "Gyroscope value: X " + event.values[0]);
-                break;
-            default:
-                break;
-        }
     }
 
 

@@ -125,6 +125,14 @@ public class MqttClientManager {
 
     }
 
+    public void publishMessage(String topic, MqttMessage mqttMessage){
+        try {
+            client.publish(topic, mqttMessage);
+        } catch (MqttException e) {
+            e.printStackTrace();
+        }
+    }
+
     public void setStatus(boolean clientConnected) {
         isClientConnected = clientConnected;
     }

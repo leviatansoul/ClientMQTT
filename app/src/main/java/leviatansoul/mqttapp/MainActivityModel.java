@@ -20,6 +20,9 @@ import static android.content.ContentValues.TAG;
 public class MainActivityModel extends ViewModel {
 
 
+    /*
+    The attribute isConnected represent the status of the client connection
+     */
     private MutableLiveData<Boolean> isConnected = new MutableLiveData<>();
 
     public MainActivityModel() {
@@ -35,52 +38,36 @@ public class MainActivityModel extends ViewModel {
 
         mqttClientManager.setStatus(false);
         isConnected.postValue(false);
-
-
         mqttClientManager.disconnetClient();
 
-        //mqttClientManager.getClient().close();
     }
 
-    public void connectToBroker(final MqttClientManager mqttClientManager, final Context context, String ip, String port, String user, final String frec, final int sensorSelected) {
+    public void connectToBroker(final MqttClientManager mqttClientManager, final GameSensorManager gameSensorManager, String ip, String port, final String user, final String frec) {
 
         if (mqttClientManager.isClientConnected()) {
-            Toast.makeText(context, "Disconecting", Toast.LENGTH_SHORT).show();
-            try {
-
-                //MQTT client is disconnected and thread is stopped
 
 
-                mqttClientManager.setStatus(false);
-                isConnected.postValue(false);
-                mqttClientManager.getClient().disconnect();
+            //MQTT client is disconnected and thread is stopped
+            mqttClientManager.setStatus(false);
+            isConnected.postValue(false);
+            mqttClientManager.disconnetClient();
 
-                Log.d(TAG, "Enter in disconnect");
-            } catch (MqttException e) {
-                e.printStackTrace();
-                Log.d(TAG, "error Disconnectings");
-            }
+            Log.d(TAG, "Enter in disconnect");
+
         } else {
 
             try {
-
-                        /*
-                        A new MQTT client is generated and connected to the broker
-                         */
-
-
-                //mqttClientManager.setClient(context, ip, port, user);
-
+                /*
+                 A new MQTT client is generated and connected to the broker
+                 */
                 IMqttToken token = mqttClientManager.getClient().connect(mqttClientManager.getOptions());
-
                 token.setActionCallback(new IMqttActionListener() {
                     @Override
                     public void onSuccess(IMqttToken asyncActionToken) {
                         // We are connected
                         mqttClientManager.setStatus(true);
-                        Log.d(TAG, "onSuccess");
-
                         isConnected.postValue(true);
+                        Log.d(TAG, "Client connected Succsefully");
 
 
                         /**
@@ -91,42 +78,27 @@ public class MainActivityModel extends ViewModel {
                                     @Override
                                     public void run() {
 
-                                        String name = mqttClientManager.getClient().getClientId();
-                                        Log.d(TAG, "usuario " + name);
                                         int frecuency = Integer.parseInt(frec);
-                                        String topic = "";
 
                                         while (mqttClientManager.isClientConnected()) {
                                             try {
 
-                                                Log.d(TAG, "value " + mqttClientManager.getClient().isConnected());
-                                                String payload = "";
-                                                MqttMessage message = new MqttMessage();
-                                                switch (sensorSelected) {
-                                                    case Sensor.TYPE_ACCELEROMETER:
-                                                        message = mqttClientManager.prepareMQTTMessage(MainActivity.accelerometer_value, 0);
-                                                        topic = "/Sensor/" + name + "/Accelerometer/x";
-                                                        break;
-                                                    case Sensor.TYPE_GYROSCOPE:
-                                                        message = mqttClientManager.prepareMQTTMessage(MainActivity.gyroscope_value, 0);
-                                                        topic = "/Sensor/" + name + "/Gyroscope/x";
-                                                        break;
-                                                    default:
-                                                        break;
-                                                }
+                                                String topic = gameSensorManager.getSensorTopic(user);
+                                                MqttMessage message = mqttClientManager.prepareMQTTMessage(gameSensorManager.getSensorValue(), 0);
+                                                mqttClientManager.publishMessage(topic, message);
 
-                                                mqttClientManager.getClient().publish(topic, message);
                                                 Thread.sleep(frecuency);
 
+                                            } catch (  InterruptedException e) {
+                                                e.printStackTrace();
 
-                                            } catch (MqttException | InterruptedException e) {
-                                                e.printStackTrace(); //When thread breaks
                                                 mqttClientManager.setStatus(false);
-                                                Log.d(TAG, "Thread rota");
                                                 isConnected.postValue(false);
+                                                Log.d(TAG, "Thread interrupted");
                                             }
                                         }
-                                        Log.d(TAG, "NO MOREEEEE");
+                                        Log.d(TAG, "Connection finished" );
+
                                     }
                                 }
                         ).start();
@@ -137,8 +109,7 @@ public class MainActivityModel extends ViewModel {
                     @Override
                     public void onFailure(IMqttToken asyncActionToken, Throwable exception) {
                         // Something went wrong e.g. connection timeout or firewall problems
-                        Log.d(TAG, "onFailure");
-
+                        Log.d(TAG, "onFailure - connection timeout or firewall problems");
 
                         mqttClientManager.setStatus(false);
                         isConnected.postValue(false);
